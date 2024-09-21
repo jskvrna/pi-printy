@@ -1,56 +1,50 @@
-from flask import Flask, render_template, request, redirect
+from flask import Flask, render_template, request, flash, redirect, url_for
 import subprocess
 import os
 
 app = Flask(__name__)
+app.secret_key = 'your_secret_key'  # Replace with a secure key
 
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
-        # Check if the file is in the request
         if 'file' not in request.files:
-            return 'No file part'
+            flash('No file part.', 'danger')
+            return redirect(url_for('upload_file'))
         file = request.files['file']
-        # If user does not select file
         if file.filename == '':
-            return 'No selected file'
+            flash('No selected file.', 'danger')
+            return redirect(url_for('upload_file'))
         if file:
             copies = request.form.get('copies', '1')
-            duplex = request.form.get('duplex')
 
             filepath = os.path.join(UPLOAD_FOLDER, file.filename)
             file.save(filepath)
 
             # Build the lp command with options
             lp_command = ['lp', '-n', copies]
-            if duplex:
-                lp_command.extend(['-o', 'sides=two-sided-long-edge'])
             lp_command.append(filepath)
 
-            subprocess.run(lp_command)
-	    print(lp_command)
-            return 'File sent to printer'
+            try:
+                subprocess.run(lp_command, check=True)
+                # Delete the file after printing
+                os.remove(filepath)
+                return redirect(url_for('print_success'))
+            except subprocess.CalledProcessError as e:
+                # Delete the file after printing
+                os.remove(filepath)
+                flash('Failed to send file to printer. Please try again.', 'danger')
+                return redirect(url_for('upload_file'))
+    else:
+        return render_template('index.html')
 
-    return '''
-        <!doctype html>
-        <title>Upload PDF for Printing</title>
-        <h1>Upload PDF File</h1>
-        <form method=post enctype=multipart/form-data>
-        <label>PDF File:</label><br>
-        <input type=file name=file accept="application/pdf"><br><br>
-        <label>Number of Copies:</label><br>
-        <input type=number name=copies value="1" min="1"><br><br>
-        <label>Double-Sided:</label>
-        <input type=checkbox name=duplex value="True"><br><br>
-        <input type=submit value=Upload>
-        </form>
-        '''
-
+@app.route('/success')
+def print_success():
+    return render_template('success.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
